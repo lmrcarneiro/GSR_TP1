@@ -1,9 +1,11 @@
-import socket
-from pysnmp.hlapi import *
+# from pysnmp.hlapi import *
+from snmppacket import *
+from udpcommunication import *
 
-localhost = "127.0.0.1"
+msg_id = 1
+comm_string = "gsr2020"
 
-def process_req(req):
+'''
     response = ""
 
     # 2) pedir a MIB o objeto...
@@ -27,39 +29,27 @@ def process_req(req):
         for varBind in varBinds:
             response += ' = '.join([x.prettyPrint() for x in varBind])
         return response
+'''
 
-def handle_request_from_manager(recv_port, buff_size, send_port):
-    while True:
-        req = recv_UDP(recv_port, buff_size)
-        print("received request:", req)
-        response = process_req(req)
-        send_UDP(response, send_port)
-
-def recv_UDP(port, buff_size):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((localhost, port))
-    data, addr = sock.recvfrom(buff_size)
-    # data = data.decode()
-
-    composed_msg =  data.split(b" | ")
-    # TODO check cifra e hash etc..
-    mib_object_bytes = composed_msg[0]
-    cipher_bytes = composed_msg[1]
-
-    return mib_object_bytes.decode() # transformar de bytes para string
-
-def send_UDP(msg, port):
-    msg_bytes = str.encode(msg)
-
-    UDPClientSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-    UDPClientSocket.sendto(msg_bytes, (localhost, port))
 
 # 0) definir objetos
 #ObjectType(ObjectIdentity('netSnmp.11', 'secSecretKeyValue'), 2078136525)
 
+
 listen_port = 5006
 recv_buff_size = 1024
-handle_request_from_manager(listen_port, recv_buff_size, 5005) # spaghetti
 
-#listen_UDP = threading.Thread(target=rec_UDP, args=(listen_port, recv_buff_size))
-#listen_UDP.start()
+recv_packet = UDPCommunication.recv_UDP_block(listen_port, recv_buff_size)
+while True:
+    snmp_packet_bytes = next(recv_packet)
+    snmp_packet_req = SNMPPacket.convert_to_packet(snmp_packet_bytes)
+    response_pdu = "TODOOO"
+    
+    response_packet = SNMPPacket(
+        snmp_packet_req.msg_id + 1,
+        snmp_packet_req.comm_string,
+        response_pdu,
+        None
+    )
+    response_bytes = response_packet.convert_to_bytes()
+    UDPCommunication.send_UDP(response_bytes, 5005)
