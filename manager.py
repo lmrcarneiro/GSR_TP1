@@ -1,11 +1,10 @@
 from snmppacket import *
 from udpcommunication import *
 from cryptography import *
-from Crypto.Random import get_random_bytes
 
 msg_id = 1
 comm_string = "gsr2020"
-secret_key = get_random_bytes(16) # obter da mib - tem de ter 128 bits = 16 bytes !!!
+secret_key = 2661341895811798 # obtido da mib - tem de ter 128 bits = 16 bytes !!!
 
 def send_request(pdu_type, pdu, port): # to proxy
 	global msg_id
@@ -26,8 +25,8 @@ def send_req_recv_reply(pdu_t: PDUType, pdu_s: str):
 	snmp_packet_bytes = UDPCommunication.recv_UDP(listen_port, recv_buff_size)
 	print(SNMPPacket.convert_to_packet(snmp_packet_bytes).pdu)
 
-# 1) enviar sysDescr
-pdu_s = "sysDescr"
+# sysDescr
+pdu_s = ".1.3.6.1.2.1.1.1"
 
 # GET NEXT REQUEST
 pdu_t = PDUType.GET_NEXT_REQUEST
@@ -35,4 +34,5 @@ send_req_recv_reply(pdu_t, pdu_s)
 
 # GET REQUEST
 pdu_t = PDUType.GET_REQUEST
+pdu_s += ".0"
 send_req_recv_reply(pdu_t, pdu_s)

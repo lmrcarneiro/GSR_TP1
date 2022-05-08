@@ -9,6 +9,10 @@ class PDUType(Enum):
 	RESPONSE = 3
 
 class SNMPPacket:
+	"""Cria um pacote SNMP
+	
+	:param pdu_arg: necessário para saber qual a instância do objeto ao executar GET_NEXT 
+	"""
 	def __init__(self, msg_id, comm_string, pdu_type: PDUType, pdu, secret_key):
 		self.msg_id: int = msg_id
 		self.comm_string: str = comm_string
@@ -32,6 +36,9 @@ class SNMPPacket:
 		return pickle.loads(snmp_packet_bytes)
 
 	def __str__(self):
+		s1 = "Msg " + str(self.msg_id) + " \nCommunity String: " + self.comm_string
+		s2 = "\nPDU Type: " + self.pdu_type + "\nPDU: " + self.pdu
+		sf = s1 + s2
 		if self.cipher != None:
-			return "Msg " + str(self.msg_id) + " \nCommunity String: " + self.comm_string + "\nPDU: " + self.pdu + "\nCipher: " + str(self.cipher)
-		return "Msg " + str(self.msg_id) + " \nCommunity String: " + self.comm_string + "\nPDU: " + self.pdu
+			return  sf + "\nCipher: " + str(self.cipher)
+		return sf

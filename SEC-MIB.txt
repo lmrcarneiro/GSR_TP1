@@ -6,22 +6,17 @@ IMPORTS
 ;
 
 sec MODULE-IDENTITY
-    LAST-UPDATED "200406150000Z"
-    ORGANIZATION "www.net-snmp.org"
+    LAST-UPDATED "202205060000Z"
+    ORGANIZATION "www.uminho.pt"
     CONTACT-INFO    
-	 "postal:   Wes Hardaker
-                    P.O. Box 382
-                    Davis CA  95617
-
-          email:    net-snmp-coders@lists.sourceforge.net"
+	 "postal:   Luís Carneiro
+          email:    pg46541@alunos.uminho.pt"
     DESCRIPTION
-	"Example MIB objects for agent module example implementations"
-    REVISION     "200406150000Z"
+	"MIB que define a chave secreta usada nas comunicações entre proxy/manager,
+    assim como os pedidos feitos pelos managers e respostas do agente consultado"
+    REVISION     "202205060000Z"
     DESCRIPTION
-	"Corrected notification example definitions"
-    REVISION     "200202060000Z"
-    DESCRIPTION
-	"First draft"
+	"Definição inicial do documento"
     ::= { netSnmp 567 }
 
 secSecretKey OBJECT-TYPE
@@ -29,8 +24,108 @@ secSecretKey OBJECT-TYPE
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
-	"TODO."
-    DEFVAL { 123456 }
+	"Chave secreta usada nas comunicações entre proxy/manager. Tem 16 bytes
+   devido ao requisito do tamanho da chave ao cifrar/decifrar por AES"
+    DEFVAL { 2661341895811798 }
     ::= { sec 1 }
+
+logTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF logTableEntries
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "..."
+    ::= { sec 2 }
+
+logTableVirtualEntry OBJECT-TYPE
+    SYNTAX      logTableEntries
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "..."
+    INDEX { idOper } ::= { logTable 1 }
+
+TypeOfTheEntries ::=
+   SEQUENCE {
+      idOper        Unsigned32
+      typeOper      Unsigned32(0..1)
+      idSource      OCTET STRING (SIZE(0..30))
+      idDest        OCTET STRING (SIZE(0..30))
+      oidArg        OCTET STRING (SIZE(0..50))
+      valueArg      Opaque
+      typeArg       OCTET STRING (SIZE(0..30))
+      sizeArg       Unsigned32(0..30)
+      ttlOper       Unsigned32(0..3600)
+      statusOper    Unsigned32(0..3)
+}
+
+idOper OBJECT-TYPE
+   SYNTAX       Unsigned32
+   MAX-ACCESS   read-only
+   STATUS       current
+DESCRIPTION     "..."
+::= { logTableVirtualEntry 1 }
+
+typeOper OBJECT-TYPE
+   SYNTAX       Unsigned32(0..1)
+   MAX-ACCESS   read-only
+   STATUS       current
+DESCRIPTION     "TBD..."
+::= { logTableVirtualEntry 2 }
+
+idSource OBJECT-TYPE
+   SYNTAX       OCTET STRING (SIZE(0..30))
+   MAX-ACCESS   read-only
+   STATUS       current
+DESCRIPTION     "..."
+::= { logTableVirtualEntry 3 }
+
+idDest OBJECT-TYPE
+   SYNTAX       OCTET STRING (SIZE(0..30))
+   MAX-ACCESS   read-only
+   STATUS       current
+DESCRIPTION     "..."
+::= { logTableVirtualEntry 4 }
+
+oidArg OBJECT-TYPE
+   SYNTAX       OCTET STRING (SIZE(0..50))
+   MAX-ACCESS   read-only
+   STATUS       current
+DESCRIPTION     "..."
+::= { logTableVirtualEntry 5 }
+
+valueArg OBJECT-TYPE
+   SYNTAX       Opaque
+   MAX-ACCESS   read-only
+   STATUS       current
+DESCRIPTION     "..."
+::= { logTableVirtualEntry 6 }
+
+typeArg OBJECT-TYPE
+   SYNTAX       OCTET STRING (SIZE(0..30))
+   MAX-ACCESS   read-only
+   STATUS       current
+DESCRIPTION     "..."
+::= { logTableVirtualEntry 7 }
+
+sizeArg OBJECT-TYPE
+   SYNTAX       Unsigned32(0..30)
+   MAX-ACCESS   read-only
+   STATUS       current
+DESCRIPTION     "..."
+::= { logTableVirtualEntry 8 }
+
+ttlOper OBJECT-TYPE
+   SYNTAX       Unsigned32(0..3600)
+   MAX-ACCESS   read-only
+   STATUS       current
+DESCRIPTION     "..."
+::= { logTableVirtualEntry 9 }
+
+statusOper OBJECT-TYPE
+   SYNTAX       Unsigned32(0..3)
+   MAX-ACCESS   read-only
+   STATUS       current
+DESCRIPTION     "0-recebido, 1-pedido efetuado,
+2-resposta recebida, 3-erro"
+::= { logTableVirtualEntry 10 }
 
 END
