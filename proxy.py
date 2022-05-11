@@ -47,6 +47,19 @@ def get_next_request_scalar(mib_object: str) -> str:
     return pysnmp_handle_errors(iterator, mib_object)
 
 def mib_response_to_snmp_packet(mib_response: MIBsecRow) -> SNMPPacket:
+    msg_id=mib_response.idOper
+    comm_string=comm_string
+    pdu_type=PDUType.RESPONSE
+    secret_key=None, # TODO é preciso mudar isto?
+    if mib_response is None: # nao foi encontrado na mib
+        pdu="Erro: Objeto não encontrado..."
+        manager=None
+        agent=None
+    else:
+        pdu=mib_response.oidArg
+        manager=mib_response.idSource
+        agent=mib_response.idDest
+
     return SNMPPacket(
         msg_id=mib_response.idOper,
         comm_string=comm_string,
@@ -107,7 +120,7 @@ def handle_req(req: SNMPPacket) -> bytes:
     else: # buscar à MIB (assumindo que o pedido anterior chegou ao agente..)
           # TODO no futuro não assumir isto
         mib_response = get_resp_from_mibsec(req)
-        if mib_response is None:
+        if mib_response is None: # TODO ver se o proxy responde ou não...
             mib_response = "Objeto nao encontrado na MIB.."
             print(mib_response)
         snmp_packet_response = mib_response_to_snmp_packet(mib_response)
