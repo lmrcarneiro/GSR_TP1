@@ -15,6 +15,18 @@ class UDPCommunication:
         sock.bind((localhost, port))
         data, addr = sock.recvfrom(buff_size)
         return data
+    
+    @staticmethod
+    def recv_UDP_nonblock(port, buff_size, block_time_s):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((localhost, port))
+        sock.settimeout(block_time_s)
+        try:
+            data, addr = sock.recvfrom(buff_size)
+        except socket.timeout:
+            print("TIMED OUT")
+            data=None
+        return data
 
     @staticmethod
     def send_UDP(msg_bytes: bytes, port):

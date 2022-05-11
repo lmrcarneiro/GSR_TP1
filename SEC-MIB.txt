@@ -121,11 +121,11 @@ DESCRIPTION     "..."
 ::= { logTableVirtualEntry 9 }
 
 statusOper OBJECT-TYPE
-   SYNTAX       Unsigned32(0..3)
+   SYNTAX       Unsigned32(0..2)
    MAX-ACCESS   read-only
    STATUS       current
-DESCRIPTION     "0-recebido, 1-pedido efetuado,
-2-resposta recebida, 3-erro"
+DESCRIPTION     "0-recebido e pedido efetuado,
+1-resposta recebida, 2-erro"
 ::= { logTableVirtualEntry 10 }
 
 END

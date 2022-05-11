@@ -46,13 +46,15 @@ def get_next_request_scalar(mib_object: str) -> str:
     )
     return pysnmp_handle_errors(iterator, mib_object)
 
-def mib_response_to_snmp_packet(snmp_request: SNMPPacket, mib_response: str) -> SNMPPacket:
+def mib_response_to_snmp_packet(mib_response: MIBsecRow) -> SNMPPacket:
     return SNMPPacket(
-        msg_id = snmp_request.msg_id + 1,
-        comm_string = snmp_request.comm_string,
-        pdu_type = PDUType.RESPONSE,
-        pdu =  mib_response,
-        secret_key = None
+        msg_id=mib_response.idOper,
+        comm_string=comm_string,
+        pdu_type=PDUType.RESPONSE,
+        pdu=mib_response.oidArg,
+        secret_key=None, # TODO é preciso mudar isto?
+        manager=mib_response.idSource,
+        agent=mib_response.idDest
     )
 
 def store_req_in_mibsec(req: SNMPPacket):
@@ -63,9 +65,9 @@ def store_req_in_mibsec(req: SNMPPacket):
         MIBsecRow(
             idOper=randint(minId, maxId),
             typeOper=req.pdu_type,
-            idSource="aa",
-            idDest="bb",
-            oidArg="",
+            idSource=req.manager, #todo
+            idDest=req.agent, # todo
+            oidArg=req.pdu,
             valueArg="",
             typeArg=0,
             sizeArg=0,
@@ -77,26 +79,43 @@ def store_req_in_mibsec(req: SNMPPacket):
 def store_resp_in_mibsec(resp: SNMPPacket):
     print("TODO store_resp_in_mibsec")
 
+"""Para além do objeto, retorna 0 se o objeto nao
+for encontrado ou 1 se for encontrado, mas ainda
+não tiver valor """
+def get_resp_from_mibsec(req: SNMPPacket):
+    not_found_ret = 0, None
+    found_no_obj = 1, None
+    print("TODO buscar resposta da mibsec")
+    return not_found_ret
+
 def handle_req(req: SNMPPacket) -> bytes:
     """ Recebe um pacote SNMP e devolve a string de resposta """
 
     # guardar na MIBsec o pedido efetuado caso o pedido seja válido
     # e consultar o agente consoante o pedido...
-    if req.pdu_type == PDUType.GET_NEXT_REQUEST:
-        store_req_in_mibsec(req)
-        mib_response = get_next_request_scalar(req.pdu)
-    elif req.pdu_type == PDUType.GET_REQUEST:
-        store_req_in_mibsec(req)
-        mib_response = get_request_scalar(req.pdu)
-    else:
-        mib_response = "Erro: O tipo de pedido é inválido..."
-
-    # guardar resposta na mib
-    store_resp_in_mibsec(mib_response)
+    if req.msg_id == 1:
+        if req.pdu_type == PDUType.GET_NEXT_REQUEST:
+            store_req_in_mibsec(req)
+            mib_response = get_next_request_scalar(req.pdu)
+            store_resp_in_mibsec(mib_response)
+        elif req.pdu_type == PDUType.GET_REQUEST:
+            store_req_in_mibsec(req)
+            mib_response = get_request_scalar(req.pdu)
+            store_resp_in_mibsec(mib_response)
+        else:
+            mib_response = "Erro: O tipo de pedido é inválido..."
+    else: # buscar à MIB (assumindo que o pedido anterior chegou ao agente..)
+          # TODO no futuro não assumir isto
+        mib_response = get_resp_from_mibsec(req)
+        if mib_response is None:
+            mib_response = "Objeto nao encontrado na MIB.."
+            print(mib_response)
+        snmp_packet_response = mib_response_to_snmp_packet(mib_response)
+        return snmp_packet_response.convert_to_bytes()
+    
 
     # mib_response (str) para snmp packet (SNMPPacket)
-    snmp_packet_response = mib_response_to_snmp_packet(req, mib_response)
-    return snmp_packet_response.convert_to_bytes()
+    #
 
 
 # 0) definir objetos
@@ -113,6 +132,7 @@ recv_packet = UDPCommunication.recv_UDP_block(listen_port, recv_buff_size)
 while True:
     snmp_packet_bytes = next(recv_packet)
     snmp_packet_req = SNMPPacket.convert_to_packet(snmp_packet_bytes)
-    response_bytes = handle_req(snmp_packet_req)
     
-    UDPCommunication.send_UDP(response_bytes, 5005)
+    handle_req(snmp_packet_req)
+    #response_bytes = handle_req(snmp_packet_req)
+    #UDPCommunication.send_UDP(response_bytes, 5005)
