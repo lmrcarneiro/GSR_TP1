@@ -29,6 +29,6 @@ class UDPCommunication:
         return data
 
     @staticmethod
-    def send_UDP(msg_bytes: bytes, port):
+    def send_UDP(msg_bytes:bytes, port):
         UDPClientSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
         UDPClientSocket.sendto(msg_bytes, (localhost, port))
