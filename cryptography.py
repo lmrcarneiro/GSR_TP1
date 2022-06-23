@@ -11,12 +11,14 @@ class CryptoOperation:
         encrypted_msg = cipher.encrypt(padded_private_msg)
         return encrypted_msg
 
-    # POR TESTAR
     @staticmethod
     def aes_decryption(encrypted_msg:bytes, secret_key):
         cipher = AES.new(secret_key, AES.MODE_ECB)
         decrypted_msg = cipher.decrypt(encrypted_msg)
-        unpadded_private_msg = Padding.unpad(decrypted_msg, 16)
+        try:
+            unpadded_private_msg = Padding.unpad(decrypted_msg, 16)
+        except ValueError:
+            return None
         return unpadded_private_msg
 
     @staticmethod
