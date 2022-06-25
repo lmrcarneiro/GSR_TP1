@@ -1,13 +1,21 @@
 from queue import Queue
+from time import sleep
 from pysnmp.hlapi import *
-from requeststable import RequestsTable, RequestsTableColumn, RequestsTableEntry
+from requeststable import RequestStatus, RequestsTable, RequestsTableColumn, RequestsTableEntry
 from snmppacket import *
 from udpcommunication import *
 from typing import List # para ter type hints
-from threading import Thread
+from threading import Thread, Lock
+from datetime import datetime, timedelta
+from configparser import ConfigParser
 
 COMM_STRING = "gsr2020"
-SECRET_KEY = bytes("2661341895811798", "utf-8") # obtido da mib - tem de ter 128 bits = 16 bytes !!!
+KEY_STORAGE_FILENAME = "KEY_CONFIG.txt"
+SECRET_KEY = None
+
+FILL_TABLE_DELAY = 0.1
+CLEAN_TABLE_DELAY = 10
+DELETE_NON_VALID_TABLE_ENTRY_DELAY = 120
 
 LISTEN_PORT = 5006
 SEND_TO_PORT = 5005
@@ -15,24 +23,24 @@ RECV_BUFF_SIZE = 1024
 
 global_manager_requests_queue = Queue() # guarda os pedidos dos managers
 global_requests_table:List[RequestsTableEntry] = list() # instanciar tabela de pedidos
+global_requests_table_lock = Lock()
 
+"""Retorna True,Valor objeto ou False,None"""
 def pysnmp_handle_errors(iterator, mib_object):
     try:
         errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
-        if errorIndication or errorStatus:
-            return "Error fetching " + mib_object
     except Exception:
-        return "Object " + mib_object + " does not exist!"
+        return ResponseStatus.OBJECT_DOES_NOT_EXIST,"Object " + mib_object + " does not exist!"
     
     if errorIndication or errorStatus:
-        return "Error fetching " + mib_object
-    else:
-        response = ""
-        for varBind in varBinds:
-            response += ' = '.join([x.prettyPrint() for x in varBind])
-        return response
+        return ResponseStatus.UNSPECIFIED_ERROR_WHEN_FETCHING_OBJECT,"Error fetching " + mib_object
 
-def get_request_scalar(mib_object:str) -> str:
+    response = ""
+    for varBind in varBinds:
+        response += ' = '.join([x.prettyPrint() for x in varBind])
+    return ResponseStatus.SUCCESS,response
+
+def get_request_scalar(mib_object:str):
     # 2) pedir a MIB o objeto...
     iterator = getCmd(
         SnmpEngine(),
@@ -43,7 +51,7 @@ def get_request_scalar(mib_object:str) -> str:
     )
     return pysnmp_handle_errors(iterator, mib_object)
 
-def get_next_request_scalar(mib_object:str) -> str:
+def get_next_request_scalar(mib_object:str):
     # 2) pedir a MIB o objeto...
     iterator = nextCmd(
         SnmpEngine(),
@@ -58,13 +66,14 @@ def get_next_request_scalar(mib_object:str) -> str:
 na tabela de pedidos"""
 def get_row_index_by_id(id:int):
     i=0
-    len_table = len(global_requests_table)
-    while i<len_table:
-        line = global_requests_table[i]
-        if line.idOper == id:
-            return i
-        i+=1
-    return None
+    with global_requests_table_lock:
+        len_table = len(global_requests_table)
+        while i<len_table:
+            line = global_requests_table[i]
+            if line.idOper == id:
+                return i
+            i+=1
+        return None
 
 """A partir de um oid do género TableReq.typeOp.145
 retira o id (145) e a columa (typeOp) se o pedido
@@ -80,37 +89,69 @@ def get_table_id_and_column_from_oid(oid:str):
     return None,None
 
 """Guarda um pedido na tablela, por exemplo, para definir
-o tipo de operação para GET no ID 145.
-É garantido que o id fornecido ainda não existe na tabela
-PARA JÁ"""
+o tipo de operação para GET no ID 145."""
 def save_request_in_table(table_id:int, table_column:str, decrypted_value:str,
                         manager_alias:str, agent_alias:str):
     
     row_index = get_row_index_by_id(table_id)
-    
-    new_entry = RequestsTableEntry(idOper=table_id)
-    new_entry.set_column(table_column, decrypted_value)
 
     if row_index is None:
         # nenhum objeto existe nesse ID, pelo que podemos começar a guardar
         # o que o manager quiser (+ ID + manager + agente)
+        new_entry = RequestsTableEntry(idOper=table_id)
+        new_entry.set_column(table_column, decrypted_value)
         new_entry.set_column(RequestsTableColumn.ID_OPER.value, table_id)
         new_entry.set_column(RequestsTableColumn.ID_SOURCE.value, manager_alias)
         new_entry.set_column(RequestsTableColumn.ID_DEST.value, agent_alias)
-        global_requests_table.append(new_entry)
-        return ResponseType.SUCCESS
-    else:
-        # linha já existe, ou seja, temos que ver se 
-        # este manager é o autorizado
-        # o agente está correto
-        row:RequestsTableEntry = global_requests_table[row_index]
-        if row.idSource==manager_alias and row.idDest==agent_alias:
+        #print("a imprimir nova linha: " + str(new_entry))
+        with global_requests_table_lock:
             global_requests_table.append(new_entry)
-            print("a imprimir linha: " + row)
-            return ResponseType.SUCCESS
-        else:
-            print("Manager nao esta autorizado a fazer essa operacao...")
-            return ResponseType.UNAUTHORIZED_OPERATION
+        return ResponseStatus.SUCCESS
+    else:
+        # linha já existe
+        # erro se estivermos a definir o id pela primeira vez...
+        if table_column == RequestsTableColumn.TYPE_OPER.value:
+            return ResponseStatus.ID_ALREADY_EXISTS
+        
+        # temos que ver se este manager é o autorizado
+        # e o agente está correto
+        with global_requests_table_lock:
+            row:RequestsTableEntry = global_requests_table[row_index]
+            if row.idSource==manager_alias and row.idDest==agent_alias:
+                # será que o objeto está definido na totalidade?
+                if hasattr(row, "oidArg"):
+                    if row.oidArg == decrypted_value:
+                        return ResponseStatus.SAME_OID_ALREADY_EXISTS
+                    return ResponseStatus.DIFFERENT_OID_ALREADY_EXISTS
+                
+                # a unica possibilidade é guardar o oidArg...
+                # no futuro pode-se por isto mais modular
+                global_requests_table[row_index].oidArg = decrypted_value
+                
+                # à partida, vai estar completely set, isto é só um safeguard
+                if global_requests_table[row_index].isCompletelySet():
+                    global_requests_table[row_index].statusOper = RequestStatus.WAITING_FOR_QUERY
+                else:
+                    global_requests_table[row_index].statusOper = RequestStatus.INCOMPLETE
+
+                #print("a imprimir linha: " + str(global_requests_table[row_index]))
+                return ResponseStatus.SUCCESS
+
+        print("Manager nao esta autorizado a fazer essa operacao...")
+        return ResponseStatus.UNAUTHORIZED_OPERATION
+
+"""Devolve o valor (valueArg) de um dado objeto guardado
+Caso não exista (ou ocorram outros problemas), devolve None"""
+def get_object_from_table(table_id):
+    row_index = get_row_index_by_id(table_id)
+    if row_index is None:
+        return ResponseStatus.INVALID_TABLE_OID, None
+    with global_requests_table_lock:
+        obj = global_requests_table[row_index]
+        if obj.statusOper == RequestStatus.VALID:
+            return ResponseStatus.SUCCESS, obj.valueArg
+    return ResponseStatus.UNSPECIFIED_ERROR_WHEN_FETCHING_OBJECT, None
+
 
 def handle_manager_request(request:SNMPPacket) -> bytes:
     """ Recebe um pacote SNMP e devolve a resposta
@@ -118,15 +159,17 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
 
     respond_flag = True # por norma, é para responder
     # exceto quando a chave de decifra está inválida
+    response = None
+    status = None
 
+    packet_oid = request.object_identifier
+
+    table_id,table_column = get_table_id_and_column_from_oid(packet_oid)
     if request.packet_type == PacketType.SET_REQUEST:
-        packet_oid = request.object_identifier
-
-        table_id,table_column = get_table_id_and_column_from_oid(packet_oid)
         if table_id is None:
             # oid mal formatado...
             print("Erro de formatacao no oid " + packet_oid)
-            response = ResponseType.INVALID_OID
+            status = ResponseStatus.INVALID_TABLE_OID
         else:
             # ver se o value fornecido no pedido é válido
             # (tentar decifrá-lo)
@@ -142,12 +185,15 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
                 decrypted_value = decrypted_value_bytes.decode()
                 #print("Valor do pedido: " + decrypted_value)
 
-                response = save_request_in_table(table_id, table_column, decrypted_value, 
+                status = save_request_in_table(table_id, table_column, decrypted_value, 
                 request.manager, request.agent)
+
+    elif request.packet_type==PacketType.GET_REQUEST or request.packet_type==PacketType.GET_NEXT_REQUEST:
+        # buscar valor à tabela
+        status, response = get_object_from_table(table_id)
     else:
-        print("Request " + str(request) + " ainda nao previsto...")
-        print("Tratar de outros tipos de request!!!")
-        response = ResponseType.INVALID_TYPE
+        print("Request " + str(request) + " invalido")
+        status = ResponseStatus.INVALID_TYPE
 
     if respond_flag:
         response_snmp_packet = SNMPPacket(
@@ -158,21 +204,65 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
             value=response,
             manager=request.manager,
             agent=request.agent,
-            secret_key=SECRET_KEY
+            secret_key=SECRET_KEY,
+            response_status=status
         )
+        #print("A responder: " + str(response.value))
         response_bytes = response_snmp_packet.convert_to_bytes()
         UDPCommunication.send_UDP(response_bytes, SEND_TO_PORT)
-
-    '''snmp_packet_response = mib_response_to_snmp_packet(mib_response)
-    return snmp_packet_response.convert_to_bytes()
-    '''
-
 
 # 0) definir objetos
 #ObjectType(ObjectIdentity('netSnmp.11', 'secSecretKeyValue'), 2078136525)
 
-def handle_requests():
-    print("Thread que trata dos pedidos instanciada!")
+def fill_table_with_agent_response():
+    now = datetime.now()
+    with global_requests_table_lock:
+        for req in global_requests_table:
+            if req.statusOper == RequestStatus.WAITING_FOR_QUERY:
+                if req.typeOper == PacketType.GET_REQUEST.value:
+                    status,result = get_request_scalar(req.oidArg)
+                elif req.typeOper == PacketType.GET_NEXT_REQUEST.value:
+                    status,result = get_next_request_scalar(req.oidArg)
+                else:
+                    print("Request type " + str(req.typeOper) + " not handled!")
+                    req.statusOper = RequestStatus.INVALID
+                    continue # passa para o proximo 
+                
+                # definir (value,) tipo, tamanho, timestamp
+                # TODO definir tipo
+                req.sizeArg = len(result)
+                req.responseTimestamp = now
+                
+                if status != ResponseStatus.SUCCESS:
+                    req.statusOper = RequestStatus.INVALID
+                    req.valueArg = SNMPPacket.response_status_to_message(int(status.value))
+                    print("Linha da tabela invalida (" + req.valueArg + ")")
+                else:
+                    req.statusOper = RequestStatus.VALID
+                    req.valueArg = result
+                    print("Linha da tabela definida!")
+
+"""Vai sempre apagar pedidos não válidos
+que tenham acontecido há mais de x seg"""
+def clean_table():
+    now = datetime.now()
+    i=0
+    with global_requests_table_lock:
+        while i<len(global_requests_table):
+            req = global_requests_table[i]
+            status = req.statusOper
+            if status != RequestStatus.VALID:
+                # ver se ja passou o tempo
+                stored_date = req.responseTimestamp
+
+                if (stored_date + timedelta(seconds=DELETE_NON_VALID_TABLE_ENTRY_DELAY)) < now:
+                    global_requests_table.pop(i)
+                    i-=1
+            i+=1
+
+
+def handle_requests_thread():
+    print("Thread que trata dos pedidos iniciada!")
 
     while True:
         manager_request = SNMPPacket.convert_to_packet(
@@ -182,9 +272,29 @@ def handle_requests():
 
         handle_manager_request(manager_request)
 
+def fill_table_with_response_thread():
+    print("Thread que trata de por as respostas na tabela iniciada!")
+    while True:
+        fill_table_with_agent_response()
+        sleep(FILL_TABLE_DELAY)
+
+def clean_table_thread():
+    print("Thread que vai limpando a tabela iniciada!")
+    while True:
+        sleep(CLEAN_TABLE_DELAY)
+        clean_table()
+
 def main():
     # começar thread que trata dos pedidos
-    t = Thread(target=handle_requests)
+    t = Thread(target=handle_requests_thread)
+    t.start()
+
+    # começar thread que preenche a tabela
+    t = Thread(target=fill_table_with_response_thread)
+    t.start()
+
+    # começar thread que vai limpando a tabela
+    t = Thread(target=clean_table_thread)
     t.start()
 
     # Thread principal apenas coloca o que recebe numa Queue para a 
@@ -196,4 +306,16 @@ def main():
         )
 
 if __name__ == "__main__":
+    # Ler chave privada para comunicar com manager
+	parser = ConfigParser()
+	parser.read(KEY_STORAGE_FILENAME)
+	
+    # TODO ler chaves de TODOS os managers e gerir para cada um
+	try:
+		key = parser.get("config", "manager1")
+		SECRET_KEY = bytes(key,"utf-8")
+	except Exception:
+		print("Erro: chave não definida para o manager1")
+		exit(-1)
+
 	main()

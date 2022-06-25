@@ -12,13 +12,22 @@ class PacketType(Enum):
 	SET_REQUEST = 3
 	RESPONSE = 4
 
-class ResponseType(Enum):
+class ResponseStatus(Enum):
+	# Respostas comuns
 	SUCCESS = 0
-	INVALID_OID = 1
-	ID_ALREADY_EXISTS = 2
-	UNAUTHORIZED_OPERATION = 3
-	INVALID_KEY = 4
-	INVALID_TYPE = 5
+	# A fazer SET
+	INVALID_TABLE_OID = 1
+	INVALID_TYPE = 2
+	# Ao definir id, tipo, manager e agent
+	ID_ALREADY_EXISTS = 3
+	# Ao definir o OID
+	SAME_OID_ALREADY_EXISTS = 4
+	DIFFERENT_OID_ALREADY_EXISTS = 5
+	UNAUTHORIZED_OPERATION = 6
+	# ao fazer GET
+	OBJECT_DOES_NOT_EXIST = 7
+	UNSPECIFIED_ERROR_WHEN_FETCHING_OBJECT = 8
+
 
 class SNMPPacket:
 	"""Cria um pacote SNMP"""
@@ -29,7 +38,8 @@ class SNMPPacket:
 	maxId = (10 ** packet_id_digits) -1
 
 	def __init__(self, packet_id:int, comm_str:str, packet_type:PacketType,
-				oid:str, value:str, manager:str, agent:str, secret_key:str):
+				oid:str, value:str, manager:str, agent:str, secret_key:str, 
+				response_status:ResponseStatus=None):
 		self.packet_id:int = packet_id
 		self.community_string:str = comm_str
 		self.packet_type:PacketType = packet_type
@@ -39,15 +49,25 @@ class SNMPPacket:
 		# vão ser criados novos campos
 		self.manager:str = manager
 		self.agent:str = agent
-	
-	def cipher_value(self, value:PacketType|ResponseType|str, secret_key) -> bytes:
-		print(type(value))
-		if type(value) == PacketType or type(value) == ResponseType:
+		# campo para indicar o status de resposta (tipo de erro ou sucesso)
+		# esta vai também ser cifrada
+		self.response_status:bytes = self.cipher_response_status(response_status, secret_key)
+
+	def cipher_value(self, value:PacketType|str, secret_key) -> bytes:
+		if value is None: # ao fazer GET
+			return None
+		if type(value) == PacketType:
 			mib_object_bytes:bytes = str(value.value).encode()
 		else:
 			mib_object_bytes:bytes = value.encode()
 		# hashed_obj = CryptoOperation.hash_msg(mib_object_bytes)
 		return CryptoOperation.aes_encryption(mib_object_bytes, secret_key)
+
+	def cipher_response_status(self, status:ResponseStatus, secret_key) -> bytes:
+		if status is None:
+			return None
+		status_bytes:bytes = str(status.value).encode()
+		return CryptoOperation.aes_encryption(status_bytes, secret_key)
 
 	def convert_to_bytes(self):
 		return pickle.dumps(self)
@@ -59,11 +79,14 @@ class SNMPPacket:
 	"""Dada uma resposta do proxy ao pedido do manager (0,1,2,...),
 	devolve a mensagem correta para mais fácil interpretação"""
 	@staticmethod
-	def proxy_response_to_message(response_type:str):
-		msg = "Resposta nao prevista!"
-		response_type:int = int(response_type)
-		if(response_type == ResponseType.SUCCESS.value):
+	def response_status_to_message(int_response_type:int): #TODO
+		msg = "Resposta " + str(int_response_type) + " nao prevista na funcao!"
+		if int_response_type == ResponseStatus.SUCCESS.value:
 			msg = "A operacao ocorreu com sucesso!"
+		elif int_response_type == ResponseStatus.OBJECT_DOES_NOT_EXIST.value:
+			msg = "O objeto nao existe"
+		elif int_response_type == ResponseStatus.UNSPECIFIED_ERROR_WHEN_FETCHING_OBJECT.value:
+			msg = "Erro ao fazer query"
 		return msg
 
 	@classmethod
