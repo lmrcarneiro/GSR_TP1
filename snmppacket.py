@@ -25,8 +25,7 @@ class ResponseStatus(Enum):
 	DIFFERENT_OID_ALREADY_EXISTS = 5
 	UNAUTHORIZED_OPERATION = 6
 	# ao fazer GET
-	OBJECT_DOES_NOT_EXIST = 7
-	UNSPECIFIED_ERROR_WHEN_FETCHING_OBJECT = 8
+	FETCH_ERROR = 7
 
 
 class SNMPPacket:
@@ -95,11 +94,9 @@ class SNMPPacket:
 			msg = "Um OID diferente ja esta definido nesse objeto da tabela"
 		elif int_response_type == ResponseStatus.UNAUTHORIZED_OPERATION.value:
 			msg = "Operacao nao autorizada"
-		elif int_response_type == ResponseStatus.OBJECT_DOES_NOT_EXIST.value:
-			msg = "O objeto nao existe"
-		elif int_response_type == ResponseStatus.UNSPECIFIED_ERROR_WHEN_FETCHING_OBJECT.value:
-			msg = "Erro ao fazer query"
 		return msg
+
+	"""Se houver algum erro a guardar n"""
 
 	@classmethod
 	def get_random_packet_id(cls):

@@ -31,16 +31,20 @@ global_requests_table_lock = Lock()
 def pysnmp_handle_errors(iterator, mib_object):
     try:
         errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
+        
+        if errorIndication:
+            return ResponseStatus.FETCH_ERROR, errorIndication
+        elif errorStatus:
+            response = '%s at %s' % (errorStatus.prettyPrint(),
+                            errorIndex and varBinds[int(errorIndex) - 1][0] or '?')
+            return ResponseStatus.FETCH_ERROR, response
     except Exception:
-        return ResponseStatus.OBJECT_DOES_NOT_EXIST,"Object " + mib_object + " does not exist!"
+        return ResponseStatus.FETCH_ERROR,"Unspecified error with OID " + mib_object
     
-    if errorIndication or errorStatus:
-        return ResponseStatus.UNSPECIFIED_ERROR_WHEN_FETCHING_OBJECT,"Error fetching " + mib_object
-
     response = ""
     for varBind in varBinds:
         response += ' = '.join([x.prettyPrint() for x in varBind])
-    return ResponseStatus.SUCCESS,response
+    return ResponseStatus.SUCCESS, response
 
 def get_request_scalar(mib_object:str):
     # 2) pedir a MIB o objeto...
@@ -152,7 +156,7 @@ def get_object_from_table(table_id):
         obj = global_requests_table[row_index]
         if obj.statusOper == RequestStatus.VALID:
             return ResponseStatus.SUCCESS, obj.valueArg
-    return ResponseStatus.UNSPECIFIED_ERROR_WHEN_FETCHING_OBJECT, None
+    return ResponseStatus.FETCH_ERROR, obj.valueArg
 
 """Devolve a chave guardada para o manager dado.
 Se não existir, devolve None"""
@@ -267,16 +271,15 @@ def fill_table_with_agent_response():
                 
                 # definir (value,) tipo, tamanho, timestamp
                 # TODO definir tipo
-                req.sizeArg = len(result)
+                req.valueArg = result
+                req.sizeArg = len(req.valueArg)
                 req.responseTimestamp = now
                 
                 if status != ResponseStatus.SUCCESS:
                     req.statusOper = RequestStatus.INVALID
-                    req.valueArg = SNMPPacket.response_status_to_message(int(status.value))
                     print("Linha da tabela invalida (" + req.valueArg + ")")
                 else:
                     req.statusOper = RequestStatus.VALID
-                    req.valueArg = result
 
 """Vai sempre apagar pedidos não válidos
 que tenham acontecido há mais de x seg"""
