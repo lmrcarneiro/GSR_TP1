@@ -1,2 +1,3 @@
-[config]
+[manager]
 manager1=2661341895811798
+manager2=2661341895811833

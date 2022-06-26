@@ -8,8 +8,11 @@ from time import sleep
 from sys import argv
 from configparser import ConfigParser
 
+DEBUG_FLAG = 0
+
 COMM_STRING = "gsr2020"
 KEY_STORAGE_FILENAME = "KEY_CONFIG.txt"
+KEY_FILE_SECTION = "manager"
 SECRET_KEY = None
 
 WAIT_TIME_BETWEEN_REQUESTS = 2
@@ -32,7 +35,8 @@ def send_requests_till_answer(snmp_packet_to_send:SNMPPacket):
 	snmp_packet_bytes = None
 	while snmp_packet_bytes is None and req_counter<MAX_REQUESTS_TILL_TIMEOUT:
 		req_counter+=1
-		print("A enviar pedido " + str(snmp_packet_to_send))
+		if DEBUG_FLAG==1:
+			print("A enviar pedido " + str(snmp_packet_to_send))
 		send_request(snmp_packet_to_send, SEND_TO_PORT)
 		snmp_packet_bytes = UDPCommunication.recv_UDP_nonblock(LISTEN_PORT, RECV_BUFF_SIZE, WAIT_TIME_BETWEEN_REQUESTS)
 		
@@ -48,13 +52,19 @@ def send_requests_till_answer(snmp_packet_to_send:SNMPPacket):
 		status = int(decrypted_status_bytes.decode())
 
 		# decifrar também o valor se o pacote a enviar for do tipo get ou getnext (e se for bem sucedido)
-		if snmp_packet_to_send.packet_type == PacketType.GET_REQUEST or snmp_packet_to_send.packet_type == PacketType.GET_NEXT_REQUEST:
-			if status == ResponseStatus.SUCCESS.value:
-				decrypted_value_bytes = CryptoOperation.aes_decryption(
-						response_snmp_packet.value, SECRET_KEY)
-				value = decrypted_value_bytes.decode()
-				return status,value		
-
+		# ou entao se o ID do pacote recebido for invalido, pois o novo ID que o proxy sugere está no valor
+		c_get = snmp_packet_to_send.packet_type == PacketType.GET_REQUEST
+		c_getn = snmp_packet_to_send.packet_type == PacketType.GET_NEXT_REQUEST
+		c_succ = status == ResponseStatus.SUCCESS.value
+		c_set = snmp_packet_to_send.packet_type == PacketType.SET_REQUEST	
+		c_id = status == ResponseStatus.ID_ALREADY_EXISTS.value 
+		
+		# se buscarmos um valor com sucesso ou se dermos set com um id invalido
+		if  ((c_get or c_getn) and c_succ) or (c_set and c_id):
+			decrypted_value_bytes = CryptoOperation.aes_decryption(
+					response_snmp_packet.value, SECRET_KEY)
+			value = decrypted_value_bytes.decode()
+			return status,value		
 		return status,None
 
 	print("Numero de pedidos excedido...")
@@ -78,8 +88,9 @@ def create_packet_to_send(packet_type, packet_oid, value, manager, agent):
 	)
 	return snmp_packet
 
-def send_req_recv_reply(req:str, my_manager_alias:str): # pdu_t:PDUType, pdu_s:str, manager:str, agent:str
-	print("A fazer parse do pedido " + req)
+def send_req_recv_reply(req:str, my_manager_alias:str, received_operation_id:str=None): # pdu_t:PDUType, pdu_s:str, manager:str, agent:str
+	if DEBUG_FLAG==1:
+		print("A fazer parse do pedido " + req)
 	succ, request_type, real_oid, agent_alias = parse_request(req)
 	if succ == False:
 		print("Erro ao fazer parse do pedido " + req)
@@ -92,7 +103,12 @@ def send_req_recv_reply(req:str, my_manager_alias:str): # pdu_t:PDUType, pdu_s:s
 
 	# ID da operação é escolhido aleatoriamente no início
 	# depois é sempre o mesmo
-	operation_id_str = str(RequestsTable.get_random_operation_id())
+	# (se o ID for None, estamos a realizar esta operacao pela primeira vez
+	# caso contrário, já obtivemos ID inválido na chamada passada)
+	if received_operation_id is None:
+		operation_id_str = str(RequestsTable.get_random_operation_id())
+	else:
+		operation_id_str = received_operation_id
 
 	# OID para definir o tipo de operação é tipo TableReq.typeOp.145
 	packet_oid = RequestsTable.name + "." + RequestsTableColumn.TYPE_OPER.value + "." + operation_id_str
@@ -108,7 +124,7 @@ def send_req_recv_reply(req:str, my_manager_alias:str): # pdu_t:PDUType, pdu_s:s
 	status = ResponseStatus.ID_ALREADY_EXISTS.value
 	while status == ResponseStatus.ID_ALREADY_EXISTS.value:
 		# Enviar pedidos continuos até obter resposta
-		status,_ = send_requests_till_answer(packet_to_send)
+		status,value = send_requests_till_answer(packet_to_send)
 		#response = SNMPPacket.proxy_response_to_message(code_response)
 		#print("Proxy respondeu: " + response)
 		
@@ -116,9 +132,14 @@ def send_req_recv_reply(req:str, my_manager_alias:str): # pdu_t:PDUType, pdu_s:s
 		if status is None: # Nº pedidos excedido
 			return
 		if status != ResponseStatus.SUCCESS.value:
-			# Se ID já existir, temos de fazer um novo e tentar outra vez...
-			if status == ResponseStatus.ID_ALREADY_EXISTS.value: # TODO re enviar pedido...
-				print("ERRO: ID já existente...")
+			# Se ID já existir, temos de ler o sugerido e tentar outra vez...
+			if status == ResponseStatus.ID_ALREADY_EXISTS.value:
+				if received_operation_id is None:
+					if DEBUG_FLAG==1:
+						print("ID inválido, a tentar outra vez!")
+					send_req_recv_reply(req, my_manager_alias, value)
+			else:
+				print(SNMPPacket.response_status_to_message(status))
 			return
 
 	# 2o pedido - definir o oid de operação (145)
@@ -142,8 +163,8 @@ def send_req_recv_reply(req:str, my_manager_alias:str): # pdu_t:PDUType, pdu_s:s
 	if status is None: # Nº pedidos excedido
 		return
 	if status!=ResponseStatus.SUCCESS.value and status!=ResponseStatus.SAME_OID_ALREADY_EXISTS.value:
-		if status == ResponseStatus.DIFFERENT_OID_ALREADY_EXISTS.value or status == ResponseStatus.UNAUTHORIZED_OPERATION.value: #TODO fazer novo pedido do início...
-			print("ERRO: ...")
+		if status == ResponseStatus.DIFFERENT_OID_ALREADY_EXISTS.value or status == ResponseStatus.UNAUTHORIZED_OPERATION.value:
+			print("Erro de concorrência ao definir valores na tabela...")
 		return
 	
 	# dar algum tempo ao proxy de definir o valor na tabela...
@@ -161,7 +182,7 @@ def send_req_recv_reply(req:str, my_manager_alias:str): # pdu_t:PDUType, pdu_s:s
 	status,value = send_requests_till_answer(packet_to_send)
 	if status is None: # Nº pedidos excedido
 		return
-	if status!=ResponseStatus.SUCCESS.value:
+	if status != ResponseStatus.SUCCESS.value:
 		print(SNMPPacket.response_status_to_message(status))
 	else:
 		print(value)
@@ -225,7 +246,7 @@ if __name__ == "__main__":
 	parser.read(KEY_STORAGE_FILENAME)
 	
 	try:
-		key = parser.get("config", my_manager_alias)
+		key = parser.get(KEY_FILE_SECTION, my_manager_alias)
 		SECRET_KEY = bytes(key,"utf-8")
 	except Exception:
 		print("Erro: chave não definida para o manager " + my_manager_alias)

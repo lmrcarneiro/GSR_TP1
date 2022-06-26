@@ -72,6 +72,11 @@ class RequestsTableEntry:
                     if hasattr(self, "oidArg"):
                         return True
         return False
+    
+    def hasTimestampSet(self) -> bool:
+        if hasattr(self, "responseTimestamp"):
+            return True
+        return False
 
     def __str__(self):
         s = "ID: " + str(self.idOper) + ", Type: " + str(self.typeOper)

@@ -1,6 +1,7 @@
 from queue import Queue
 from time import sleep
 from pysnmp.hlapi import *
+from keystable import KeysTableEntry
 from requeststable import RequestStatus, RequestsTable, RequestsTableColumn, RequestsTableEntry
 from snmppacket import *
 from udpcommunication import *
@@ -11,7 +12,7 @@ from configparser import ConfigParser
 
 COMM_STRING = "gsr2020"
 KEY_STORAGE_FILENAME = "KEY_CONFIG.txt"
-SECRET_KEY = None
+KEY_FILE_SECTION = "manager"
 
 FILL_TABLE_DELAY = 0.1
 CLEAN_TABLE_DELAY = 10
@@ -23,6 +24,7 @@ RECV_BUFF_SIZE = 1024
 
 global_manager_requests_queue = Queue() # guarda os pedidos dos managers
 global_requests_table:List[RequestsTableEntry] = list() # instanciar tabela de pedidos
+global_keys_table:List[KeysTableEntry] = list() # instanciar tabela de chaves
 global_requests_table_lock = Lock()
 
 """Retorna True,Valor objeto ou False,None"""
@@ -152,6 +154,28 @@ def get_object_from_table(table_id):
             return ResponseStatus.SUCCESS, obj.valueArg
     return ResponseStatus.UNSPECIFIED_ERROR_WHEN_FETCHING_OBJECT, None
 
+"""Devolve a chave guardada para o manager dado.
+Se não existir, devolve None"""
+def get_manager_key_from_alias(manager_alias:str):
+    for e in global_keys_table:
+        if e.manager_alias == manager_alias:
+            return e.key
+    return None
+
+"""Devolve um id da tabela ainda não usado.
+Caso não o encontre (praticamente impossível),
+devolve um já existente (o que faz com que os
+managers desistam de fazer queries)"""
+def generate_unused_table_id()->int:
+    with global_requests_table_lock:
+        used_ids = [e.idOper for e in global_requests_table]
+    # escolher o número menor
+    for e in range(RequestsTable.minId, RequestsTable.maxId+1):
+        if e not in used_ids:
+            return e
+    # se nao for possivel encontrar nenhum, escolhe
+    # o 1 arbitrariamente
+    return 
 
 def handle_manager_request(request:SNMPPacket) -> bytes:
     """ Recebe um pacote SNMP e devolve a resposta
@@ -163,37 +187,50 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
     status = None
 
     packet_oid = request.object_identifier
+    manager_alias = request.manager
 
-    table_id,table_column = get_table_id_and_column_from_oid(packet_oid)
-    if request.packet_type == PacketType.SET_REQUEST:
-        if table_id is None:
-            # oid mal formatado...
-            print("Erro de formatacao no oid " + packet_oid)
-            status = ResponseStatus.INVALID_TABLE_OID
-        else:
-            # ver se o value fornecido no pedido é válido
-            # (tentar decifrá-lo)
-            decrypted_value_bytes = CryptoOperation.aes_decryption(
-                request.value, SECRET_KEY)
-            if decrypted_value_bytes is None:
-                # Nao vai responder por questoes de segurança...
-                # Se for um atacante, a informaçao que a chave é inválida
-                # pode ser benéfica
-                respond_flag = False
-                print("Chave inválida...")
-            else:
-                decrypted_value = decrypted_value_bytes.decode()
-                #print("Valor do pedido: " + decrypted_value)
-
-                status = save_request_in_table(table_id, table_column, decrypted_value, 
-                request.manager, request.agent)
-
-    elif request.packet_type==PacketType.GET_REQUEST or request.packet_type==PacketType.GET_NEXT_REQUEST:
-        # buscar valor à tabela
-        status, response = get_object_from_table(table_id)
+    # Ver se o manager tem uma chave guardada
+    manager_secret_key = get_manager_key_from_alias(
+        manager_alias
+    )
+    if manager_secret_key is None:
+        print("Chave do manager " + manager_alias + " nao guardada...")
+        respond_flag = False
     else:
-        print("Request " + str(request) + " invalido")
-        status = ResponseStatus.INVALID_TYPE
+        table_id,table_column = get_table_id_and_column_from_oid(packet_oid)
+        if request.packet_type == PacketType.SET_REQUEST:
+            if table_id is None:
+                # oid mal formatado...
+                print("Erro de formatacao no oid " + packet_oid)
+                status = ResponseStatus.INVALID_TABLE_OID
+            else:
+                # ver se o value fornecido no pedido é válido
+                # (tentar decifrá-lo)
+                decrypted_value_bytes = CryptoOperation.aes_decryption(
+                    request.value, manager_secret_key)
+                if decrypted_value_bytes is None:
+                    # Nao vai responder por questoes de segurança...
+                    # Se for um atacante, a informaçao que a chave é inválida
+                    # pode ser benéfica
+                    respond_flag = False
+                    print("Chave inválida...")
+                else:
+                    decrypted_value = decrypted_value_bytes.decode()
+                    #print("Valor do pedido: " + decrypted_value)
+
+                    status = save_request_in_table(table_id, table_column, decrypted_value, 
+                    manager_alias, request.agent)
+                    if status == ResponseStatus.ID_ALREADY_EXISTS:
+                        # fornecer outro ID para o manager tentar outra vez
+                        response = str(generate_unused_table_id())
+                        print("NOVO ID: " + response)
+
+        elif request.packet_type==PacketType.GET_REQUEST or request.packet_type==PacketType.GET_NEXT_REQUEST:
+            # buscar valor à tabela
+            status, response = get_object_from_table(table_id)
+        else:
+            print("Request " + str(request) + " invalido")
+            status = ResponseStatus.INVALID_TYPE
 
     if respond_flag:
         response_snmp_packet = SNMPPacket(
@@ -202,9 +239,9 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
             packet_type=PacketType.RESPONSE,
             oid=None,
             value=response,
-            manager=request.manager,
+            manager=manager_alias,
             agent=request.agent,
-            secret_key=SECRET_KEY,
+            secret_key=manager_secret_key,
             response_status=status
         )
         #print("A responder: " + str(response.value))
@@ -240,25 +277,23 @@ def fill_table_with_agent_response():
                 else:
                     req.statusOper = RequestStatus.VALID
                     req.valueArg = result
-                    print("Linha da tabela definida!")
 
 """Vai sempre apagar pedidos não válidos
 que tenham acontecido há mais de x seg"""
 def clean_table():
     now = datetime.now()
-    i=0
     with global_requests_table_lock:
-        while i<len(global_requests_table):
-            req = global_requests_table[i]
+        for req in global_requests_table:
             status = req.statusOper
-            if status != RequestStatus.VALID:
-                # ver se ja passou o tempo
-                stored_date = req.responseTimestamp
+            if status == RequestStatus.INVALID or status != RequestStatus.EXPIRED:
+                if req.hasTimestampSet():
+                    # ver se ja passou o tempo
+                    stored_date = req.responseTimestamp
 
-                if (stored_date + timedelta(seconds=DELETE_NON_VALID_TABLE_ENTRY_DELAY)) < now:
-                    global_requests_table.pop(i)
-                    i-=1
-            i+=1
+                    if (stored_date + timedelta(seconds=DELETE_NON_VALID_TABLE_ENTRY_DELAY)) < now:
+                        global_requests_table.remove(req)
+                else:
+                    global_requests_table.remove(req)
 
 
 def handle_requests_thread():
@@ -307,15 +342,16 @@ def main():
 
 if __name__ == "__main__":
     # Ler chave privada para comunicar com manager
-	parser = ConfigParser()
-	parser.read(KEY_STORAGE_FILENAME)
-	
-    # TODO ler chaves de TODOS os managers e gerir para cada um
-	try:
-		key = parser.get("config", "manager1")
-		SECRET_KEY = bytes(key,"utf-8")
-	except Exception:
-		print("Erro: chave não definida para o manager1")
-		exit(-1)
+    parser = ConfigParser()
+    parser.read(KEY_STORAGE_FILENAME)
 
-	main()
+    # Acrescentar chaves à tabela
+    for man,key in parser.items(KEY_FILE_SECTION):
+        global_keys_table.append(
+            KeysTableEntry(
+                manager_alias=man,
+                key=key
+            )
+        )
+    
+    main()

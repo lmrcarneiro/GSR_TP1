@@ -79,10 +79,22 @@ class SNMPPacket:
 	"""Dada uma resposta do proxy ao pedido do manager (0,1,2,...),
 	devolve a mensagem correta para mais fácil interpretação"""
 	@staticmethod
-	def response_status_to_message(int_response_type:int): #TODO
+	def response_status_to_message(int_response_type:int):
 		msg = "Resposta " + str(int_response_type) + " nao prevista na funcao!"
 		if int_response_type == ResponseStatus.SUCCESS.value:
 			msg = "A operacao ocorreu com sucesso!"
+		elif int_response_type == ResponseStatus.INVALID_TABLE_OID.value:
+			msg = "OID mal formatado"
+		elif int_response_type == ResponseStatus.INVALID_TYPE.value:
+			msg = "Tipo de pedido invalido"
+		elif int_response_type == ResponseStatus.ID_ALREADY_EXISTS.value:
+			msg = "ID fornecido ja existe na tabela"
+		elif int_response_type == ResponseStatus.SAME_OID_ALREADY_EXISTS.value:
+			msg = "O mesmo OID ja esta definido nesse objeto da tabela"
+		elif int_response_type == ResponseStatus.DIFFERENT_OID_ALREADY_EXISTS.value:
+			msg = "Um OID diferente ja esta definido nesse objeto da tabela"
+		elif int_response_type == ResponseStatus.UNAUTHORIZED_OPERATION.value:
+			msg = "Operacao nao autorizada"
 		elif int_response_type == ResponseStatus.OBJECT_DOES_NOT_EXIST.value:
 			msg = "O objeto nao existe"
 		elif int_response_type == ResponseStatus.UNSPECIFIED_ERROR_WHEN_FETCHING_OBJECT.value:
