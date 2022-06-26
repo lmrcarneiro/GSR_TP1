@@ -24,8 +24,9 @@ RECV_BUFF_SIZE = 1024
 
 global_manager_requests_queue = Queue() # guarda os pedidos dos managers
 global_requests_table:List[RequestsTableEntry] = list() # instanciar tabela de pedidos
-global_keys_table:List[KeysTableEntry] = list() # instanciar tabela de chaves
 global_requests_table_lock = Lock()
+global_keys_table:List[KeysTableEntry] = list() # instanciar tabela de chaves
+global_manager_blacklist = []
 
 """Retorna True,Valor objeto ou False,None"""
 def pysnmp_handle_errors(iterator, mib_object):
@@ -200,6 +201,9 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
     if manager_secret_key is None:
         print("Chave do manager " + manager_alias + " nao guardada...")
         respond_flag = False
+    elif manager_alias in global_manager_blacklist:
+        print("Manager " + manager_alias + " na blacklist...")
+        respond_flag = False
     else:
         table_id,table_column = get_table_id_and_column_from_oid(packet_oid)
         if request.packet_type == PacketType.SET_REQUEST:
@@ -217,6 +221,7 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
                     # Se for um atacante, a informaçao que a chave é inválida
                     # pode ser benéfica
                     respond_flag = False
+                    global_manager_blacklist.append(manager_alias)
                     print("Chave inválida...")
                 else:
                     decrypted_value = decrypted_value_bytes.decode()
@@ -233,8 +238,10 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
             # buscar valor à tabela
             status, response = get_object_from_table(table_id)
         else:
-            print("Request " + str(request) + " invalido")
-            status = ResponseStatus.INVALID_TYPE
+            respond_flag = False
+            global_manager_blacklist.append(manager_alias)
+            print("Tipo de pedido invalido...")
+
 
     if respond_flag:
         response_snmp_packet = SNMPPacket(
@@ -277,7 +284,7 @@ def fill_table_with_agent_response():
                 
                 if status != ResponseStatus.SUCCESS:
                     req.statusOper = RequestStatus.INVALID
-                    print("Linha da tabela invalida (" + req.valueArg + ")")
+                    print("Erro ao fazer query (" + req.valueArg + ")")
                 else:
                     req.statusOper = RequestStatus.VALID
 
@@ -288,7 +295,7 @@ def clean_table():
     with global_requests_table_lock:
         for req in global_requests_table:
             status = req.statusOper
-            if status == RequestStatus.INVALID or status != RequestStatus.EXPIRED:
+            if status == RequestStatus.INVALID or status == RequestStatus.EXPIRED:
                 if req.hasTimestampSet():
                     # ver se ja passou o tempo
                     stored_date = req.responseTimestamp

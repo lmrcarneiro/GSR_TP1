@@ -51,19 +51,13 @@ def send_requests_till_answer(snmp_packet_to_send:SNMPPacket):
 			return None,None
 		status = int(decrypted_status_bytes.decode())
 
-		# decifrar também o valor se o pacote a enviar for do tipo get ou getnext
-		# ou entao se o ID do pacote recebido for invalido, pois o novo ID que o proxy sugere está no valor
-		c_get = snmp_packet_to_send.packet_type == PacketType.GET_REQUEST
-		c_getn = snmp_packet_to_send.packet_type == PacketType.GET_NEXT_REQUEST
-		c_set = snmp_packet_to_send.packet_type == PacketType.SET_REQUEST	
-		c_id = status == ResponseStatus.ID_ALREADY_EXISTS.value 
-		
-		# se buscarmos um valor com sucesso ou se dermos set com um id invalido
-		if  c_get or c_getn or (c_set and c_id):
+		# decifrar value se existir
+		if response_snmp_packet.value is not None:
 			decrypted_value_bytes = CryptoOperation.aes_decryption(
 					response_snmp_packet.value, SECRET_KEY)
 			value = decrypted_value_bytes.decode()
-			return status,value		
+			return status,value
+		
 		return status,None
 
 	print("Numero de pedidos excedido...")
@@ -181,7 +175,7 @@ def send_req_recv_reply(req:str, my_manager_alias:str, received_operation_id:str
 	status,value = send_requests_till_answer(packet_to_send)
 	if status is None: # Nº pedidos excedido
 		return
-	print(status,value)
+	print(value)
 	
 
 """Recebe a string do manager a enviar e separa

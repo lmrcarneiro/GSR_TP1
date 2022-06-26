@@ -17,15 +17,14 @@ class ResponseStatus(Enum):
 	SUCCESS = 0
 	# A fazer SET
 	INVALID_TABLE_OID = 1
-	INVALID_TYPE = 2
 	# Ao definir id, tipo, manager e agent
-	ID_ALREADY_EXISTS = 3
+	ID_ALREADY_EXISTS = 2
 	# Ao definir o OID
-	SAME_OID_ALREADY_EXISTS = 4
-	DIFFERENT_OID_ALREADY_EXISTS = 5
-	UNAUTHORIZED_OPERATION = 6
+	SAME_OID_ALREADY_EXISTS = 3
+	DIFFERENT_OID_ALREADY_EXISTS = 4
+	UNAUTHORIZED_OPERATION = 5
 	# ao fazer GET
-	FETCH_ERROR = 7
+	FETCH_ERROR = 6
 
 
 class SNMPPacket:
@@ -84,8 +83,6 @@ class SNMPPacket:
 			msg = "A operacao ocorreu com sucesso!"
 		elif int_response_type == ResponseStatus.INVALID_TABLE_OID.value:
 			msg = "OID mal formatado"
-		elif int_response_type == ResponseStatus.INVALID_TYPE.value:
-			msg = "Tipo de pedido invalido"
 		elif int_response_type == ResponseStatus.ID_ALREADY_EXISTS.value:
 			msg = "ID fornecido ja existe na tabela"
 		elif int_response_type == ResponseStatus.SAME_OID_ALREADY_EXISTS.value:
