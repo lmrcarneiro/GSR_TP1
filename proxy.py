@@ -258,9 +258,6 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
         response_bytes = response_snmp_packet.convert_to_bytes()
         UDPCommunication.send_UDP(response_bytes, SEND_TO_PORT)
 
-# 0) definir objetos
-#ObjectType(ObjectIdentity('netSnmp.11', 'secSecretKeyValue'), 2078136525)
-
 def fill_table_with_agent_response():
     with global_requests_table_lock:
         for req in global_requests_table:
