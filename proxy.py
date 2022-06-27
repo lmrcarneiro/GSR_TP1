@@ -280,7 +280,7 @@ def fill_table_with_agent_response():
                 # TODO definir tipo
                 req.valueArg = result
                 req.sizeArg = len(req.valueArg)
-                req.responseTimestamp = now
+                req.requestTimestamp = now
                 
                 if status != ResponseStatus.SUCCESS:
                     req.statusOper = RequestStatus.INVALID
@@ -298,7 +298,7 @@ def clean_table():
             if status == RequestStatus.INVALID or status == RequestStatus.EXPIRED:
                 if req.hasTimestampSet():
                     # ver se ja passou o tempo
-                    stored_date = req.responseTimestamp
+                    stored_date = req.requestTimestamp
 
                     if (stored_date + timedelta(seconds=DELETE_NON_VALID_TABLE_ENTRY_DELAY)) < now:
                         global_requests_table.remove(req)

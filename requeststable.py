@@ -45,7 +45,7 @@ class RequestsTableEntry:
         #self.oidArg:str = oidArg
         #self.valueArg:str = valueArg
         #self.typeArg:int = typeArg
-        #self.responseTimestamp:Date
+        #self.requestTimestamp:Date
         #self.ttlOper:int = ttlOper
     
     def set_column(self, column_name:str, value):
@@ -74,7 +74,7 @@ class RequestsTableEntry:
         return False
     
     def hasTimestampSet(self) -> bool:
-        if hasattr(self, "responseTimestamp"):
+        if hasattr(self, "requestTimestamp"):
             return True
         return False
 
@@ -87,7 +87,7 @@ class RequestsTableEntry:
         if hasattr(self, "valueArg"): s += " Value: " + self.valueArg
         if hasattr(self, "typeArg"): s += " TypeArg: " + str(self.typeArg)
         if hasattr(self, "sizeArg"): s += " SizeArg: " + str(self.sizeArg)
-        if hasattr(self, "responseTimestamp"): 
-            s += " ResponseTimestamp: " + self.responseTimestamp.strftime("%d/%m/%Y %H:%M:%S")
+        if hasattr(self, "requestTimestamp"): 
+            s += " RequestTimestamp: " + self.requestTimestamp.strftime("%d/%m/%Y %H:%M:%S")
 
         return s
