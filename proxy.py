@@ -16,7 +16,6 @@ KEY_FILE_SECTION = "manager"
 
 FILL_TABLE_DELAY = 0.1
 CLEAN_TABLE_DELAY = 10
-DELETE_NON_VALID_TABLE_ENTRY_DELAY = 120
 
 LISTEN_PORT = 5006
 SEND_TO_PORT = 5005
@@ -34,18 +33,18 @@ def pysnmp_handle_errors(iterator, mib_object):
         errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
         
         if errorIndication:
-            return ResponseStatus.FETCH_ERROR, errorIndication
+            return ResponseStatus.FETCH_ERROR.value, errorIndication
         elif errorStatus:
             response = '%s at %s' % (errorStatus.prettyPrint(),
                             errorIndex and varBinds[int(errorIndex) - 1][0] or '?')
-            return ResponseStatus.FETCH_ERROR, response
+            return ResponseStatus.FETCH_ERROR.value, response
     except Exception:
-        return ResponseStatus.FETCH_ERROR,"Unspecified error with OID " + mib_object
+        return ResponseStatus.FETCH_ERROR.value,"Unspecified error with OID " + mib_object
     
     response = ""
     for varBind in varBinds:
         response += ' = '.join([x.prettyPrint() for x in varBind])
-    return ResponseStatus.SUCCESS, response
+    return ResponseStatus.SUCCESS.value, response
 
 def get_request_scalar(mib_object:str):
     # 2) pedir a MIB o objeto...
@@ -98,7 +97,7 @@ def get_table_id_and_column_from_oid(oid:str):
 """Guarda um pedido na tablela, por exemplo, para definir
 o tipo de operação para GET no ID 145."""
 def save_request_in_table(table_id:int, table_column:str, decrypted_value:str,
-                        manager_alias:str, agent_alias:str):
+                        manager_alias:str, agent_alias:str)->str:
     
     now = datetime.now()
     row_index = get_row_index_by_id(table_id)
@@ -114,12 +113,12 @@ def save_request_in_table(table_id:int, table_column:str, decrypted_value:str,
         #print("a imprimir nova linha: " + str(new_entry))
         with global_requests_table_lock:
             global_requests_table.append(new_entry)
-        return ResponseStatus.SUCCESS
+        return str(ResponseStatus.SUCCESS.value)
     else:
         # linha já existe
         # erro se estivermos a definir o id pela primeira vez...
         if table_column == RequestsTableColumn.TYPE_OPER.value:
-            return ResponseStatus.ID_ALREADY_EXISTS
+            return str(ResponseStatus.ID_ALREADY_EXISTS.value)
         
         # temos que ver se este manager é o autorizado
         # e o agente está correto
@@ -129,8 +128,8 @@ def save_request_in_table(table_id:int, table_column:str, decrypted_value:str,
                 # será que o objeto está definido na totalidade?
                 if hasattr(row, "oidArg"):
                     if row.oidArg == decrypted_value:
-                        return ResponseStatus.SAME_OID_ALREADY_EXISTS
-                    return ResponseStatus.DIFFERENT_OID_ALREADY_EXISTS
+                        return str(ResponseStatus.SAME_OID_ALREADY_EXISTS.value)
+                    return str(ResponseStatus.DIFFERENT_OID_ALREADY_EXISTS.value)
                 
                 # a unica possibilidade é guardar o oidArg...
                 # no futuro pode-se por isto mais modular
@@ -139,27 +138,27 @@ def save_request_in_table(table_id:int, table_column:str, decrypted_value:str,
 
                 # à partida, vai estar completely set, isto é só um safeguard
                 if global_requests_table[row_index].isCompletelySet():
-                    global_requests_table[row_index].statusOper = RequestStatus.WAITING_FOR_QUERY
+                    global_requests_table[row_index].statusOper = RequestStatus.WAITING_FOR_QUERY.value
                 else:
-                    global_requests_table[row_index].statusOper = RequestStatus.INCOMPLETE
+                    global_requests_table[row_index].statusOper = RequestStatus.INCOMPLETE.value
 
                 #print("a imprimir linha: " + str(global_requests_table[row_index]))
-                return ResponseStatus.SUCCESS
+                return str(ResponseStatus.SUCCESS.value)
 
         print("Manager nao esta autorizado a fazer essa operacao...")
-        return ResponseStatus.UNAUTHORIZED_OPERATION
+        return str(ResponseStatus.UNAUTHORIZED_OPERATION.value)
 
 """Devolve o valor (valueArg) de um dado objeto guardado
 Caso não exista (ou ocorram outros problemas), devolve None"""
-def get_object_from_table(table_id):
+def get_object_from_table(table_id)->str:
     row_index = get_row_index_by_id(table_id)
     if row_index is None:
-        return ResponseStatus.INVALID_TABLE_OID, None
+        return str(ResponseStatus.FETCH_ERROR.value)
     with global_requests_table_lock:
         obj = global_requests_table[row_index]
-        if obj.statusOper == RequestStatus.VALID:
-            return ResponseStatus.SUCCESS, obj.valueArg
-    return ResponseStatus.FETCH_ERROR, obj.valueArg
+        if obj.statusOper == RequestStatus.VALID.value:
+            return obj.valueArg
+    return obj.valueArg
 
 """Devolve a chave guardada para o manager dado.
 Se não existir, devolve None"""
@@ -190,8 +189,7 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
 
     respond_flag = True # por norma, é para responder
     # exceto quando a chave de decifra está inválida
-    response = None
-    status = None
+    response:str = None
 
     packet_oid = request.object_identifier
     manager_alias = request.manager
@@ -208,11 +206,11 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
         respond_flag = False
     else:
         table_id,table_column = get_table_id_and_column_from_oid(packet_oid)
-        if request.packet_type == PacketType.SET_REQUEST:
+        if request.packet_type == PacketType.SET_REQUEST.value:
             if table_id is None:
                 # oid mal formatado...
                 print("Erro de formatacao no oid " + packet_oid)
-                status = ResponseStatus.INVALID_TABLE_OID
+                response = str(ResponseStatus.INVALID_TABLE_OID.value)
             else:
                 # ver se o value fornecido no pedido é válido
                 # (tentar decifrá-lo)
@@ -229,16 +227,16 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
                     decrypted_value = decrypted_value_bytes.decode()
                     #print("Valor do pedido: " + decrypted_value)
 
-                    status = save_request_in_table(table_id, table_column, decrypted_value, 
+                    response = save_request_in_table(table_id, table_column, decrypted_value, 
                     manager_alias, request.agent)
-                    if status == ResponseStatus.ID_ALREADY_EXISTS:
+                    if response == str(ResponseStatus.ID_ALREADY_EXISTS.value):
                         # fornecer outro ID para o manager tentar outra vez
                         response = str(generate_unused_table_id())
                         print("NOVO ID: " + response)
 
-        elif request.packet_type==PacketType.GET_REQUEST or request.packet_type==PacketType.GET_NEXT_REQUEST:
+        elif request.packet_type==PacketType.GET_REQUEST.value or request.packet_type==PacketType.GET_NEXT_REQUEST.value:
             # buscar valor à tabela
-            status, response = get_object_from_table(table_id)
+            response = get_object_from_table(table_id)
         else:
             respond_flag = False
             global_manager_blacklist.append(manager_alias)
@@ -249,13 +247,12 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
         response_snmp_packet = SNMPPacket(
             packet_id=request.packet_id,
             comm_str=COMM_STRING,
-            packet_type=PacketType.RESPONSE,
+            packet_type=PacketType.RESPONSE.value,
             oid=None,
             value=response,
             manager=manager_alias,
             agent=request.agent,
             secret_key=manager_secret_key,
-            response_status=status
         )
         #print("A responder: " + str(response.value))
         response_bytes = response_snmp_packet.convert_to_bytes()
@@ -267,26 +264,25 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
 def fill_table_with_agent_response():
     with global_requests_table_lock:
         for req in global_requests_table:
-            if req.statusOper == RequestStatus.WAITING_FOR_QUERY:
+            if req.statusOper == RequestStatus.WAITING_FOR_QUERY.value:
                 if req.typeOper == PacketType.GET_REQUEST.value:
                     status,result = get_request_scalar(req.oidArg)
                 elif req.typeOper == PacketType.GET_NEXT_REQUEST.value:
                     status,result = get_next_request_scalar(req.oidArg)
                 else:
                     print("Request type " + str(req.typeOper) + " not handled!")
-                    req.statusOper = RequestStatus.INVALID
+                    req.statusOper = RequestStatus.INVALID.value
                     continue # passa para o proximo 
                 
-                # definir (value,) tipo, tamanho, timestamp
-                # TODO definir tipo
+                # definir value e tamanho
                 req.valueArg = result
                 req.sizeArg = len(req.valueArg)
                 
-                if status != ResponseStatus.SUCCESS:
-                    req.statusOper = RequestStatus.INVALID
+                if status != ResponseStatus.SUCCESS.value:
+                    req.statusOper = RequestStatus.INVALID.value
                     print("Erro ao fazer query (" + req.valueArg + ")")
                 else:
-                    req.statusOper = RequestStatus.VALID
+                    req.statusOper = RequestStatus.VALID.value
 
 """Vai sempre apagar pedidos não válidos
 que tenham acontecido há mais de x seg"""
@@ -295,13 +291,14 @@ def clean_table():
     with global_requests_table_lock:
         for req in global_requests_table:
             status = req.statusOper
-            if status == RequestStatus.INVALID:
+            if status == RequestStatus.INVALID.value:
                 global_requests_table.remove(req)
             elif req.hasTimestampSet(): # vai ter sempre timestamp, safeguard
                 # ver se ja passou o tempo
                 stored_date = req.requestTimestamp
+                ttl = req.ttlOper
 
-                if (stored_date + timedelta(seconds=DELETE_NON_VALID_TABLE_ENTRY_DELAY)) < now:
+                if (stored_date + timedelta(seconds=ttl)) < now:
                     global_requests_table.remove(req)
             else:
                 print("Erro: " + str(req) + " nao tem timestamp...")

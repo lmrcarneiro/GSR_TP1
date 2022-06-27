@@ -7,10 +7,10 @@ from enum import Enum
 from Crypto.Random.random import randint
 
 class PacketType(Enum):
-	GET_REQUEST = 1
-	GET_NEXT_REQUEST = 2
-	SET_REQUEST = 3
-	RESPONSE = 4
+	GET_REQUEST = 0
+	GET_NEXT_REQUEST = 1
+	SET_REQUEST = 2
+	RESPONSE = 3
 
 class ResponseStatus(Enum):
 	# Respostas comuns
@@ -35,27 +35,23 @@ class SNMPPacket:
 	minId = 10 ** (packet_id_digits-1)
 	maxId = (10 ** packet_id_digits) -1
 
-	def __init__(self, packet_id:int, comm_str:str, packet_type:PacketType,
-				oid:str, value:str, manager:str, agent:str, secret_key:str, 
-				response_status:ResponseStatus=None):
+	def __init__(self, packet_id:int, comm_str:str, packet_type:int,
+				oid:str, value:str, manager:str, agent:str, secret_key:str):
 		self.packet_id:int = packet_id
 		self.community_string:str = comm_str
-		self.packet_type:PacketType = packet_type
+		self.packet_type:int = packet_type
 		self.object_identifier:str = oid
 		self.value:bytes = self.cipher_value(value, secret_key)
 		# como o alias do manager e do agent é sempre trocada,
 		# vão ser criados novos campos
 		self.manager:str = manager
 		self.agent:str = agent
-		# campo para indicar o status de resposta (tipo de erro ou sucesso)
-		# esta vai também ser cifrada
-		self.response_status:bytes = self.cipher_response_status(response_status, secret_key)
-
-	def cipher_value(self, value:PacketType|str, secret_key) -> bytes:
+		
+	def cipher_value(self, value:int|str, secret_key) -> bytes:
 		if value is None: # ao fazer GET
 			return None
-		if type(value) == PacketType:
-			mib_object_bytes:bytes = str(value.value).encode()
+		if type(value) == int:
+			mib_object_bytes:bytes = str(value).encode()
 		else:
 			mib_object_bytes:bytes = value.encode()
 		# hashed_obj = CryptoOperation.hash_msg(mib_object_bytes)

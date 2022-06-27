@@ -6,28 +6,18 @@ IMPORTS
 ;
 
 sec MODULE-IDENTITY
-    LAST-UPDATED "202205060000Z"
+    LAST-UPDATED "202206270000Z"
     ORGANIZATION "www.uminho.pt"
     CONTACT-INFO    
 	 "postal:   Luís Carneiro
           email:    pg46541@alunos.uminho.pt"
     DESCRIPTION
-	"MIB que define a chave secreta usada nas comunicações entre proxy/manager,
-    assim como os pedidos feitos pelos managers e respostas do agente consultado"
-    REVISION     "202205060000Z"
+	"MIB que permite a comunicação de um manager com vários agentes por SNMPv2c,
+   com mecanismos de segurança que simulam as garantias de SNMPv3"
+    REVISION     "202206270000Z"
     DESCRIPTION
-	"Definição inicial do documento"
+	"Definição final do documento"
     ::= { netSnmp 567 }
-
-secSecretKey OBJECT-TYPE
-    SYNTAX      UInteger32
-    MAX-ACCESS  read-only
-    STATUS      current
-    DESCRIPTION
-	"Chave secreta usada nas comunicações entre proxy/manager. Tem 16 bytes
-   devido ao requisito do tamanho da chave ao cifrar/decifrar por AES"
-    DEFVAL { 2661341895811798 }
-    ::= { sec 1 }
 
 logTable OBJECT-TYPE
     SYNTAX      SEQUENCE OF logTableEntries
@@ -45,87 +35,103 @@ logTableVirtualEntry OBJECT-TYPE
 
 TypeOfTheEntries ::=
    SEQUENCE {
-      idOper        Unsigned32
-      typeOper      Unsigned32(0..1)
-      idSource      OCTET STRING (SIZE(0..30))
-      idDest        OCTET STRING (SIZE(0..30))
-      oidArg        OCTET STRING (SIZE(0..50))
-      valueArg      Opaque
-      typeArg       OCTET STRING (SIZE(0..30))
-      sizeArg       Unsigned32(0..30)
-      ttlOper       Unsigned32(0..3600)
-      statusOper    Unsigned32(0..3)
+      idOper            Unsigned32(10000..99999)
+      typeOper          Unsigned32(0..1)
+      idSource          OCTET STRING
+      idDest            OCTET STRING
+      oidArg            OCTET STRING
+      valueArg          OCTET STRING
+      sizeArg           Unsigned32
+      statusOper        Unsigned32(0..3)
+      requestTimestamp  DateAndTime
+      ttlOper           Unsigned32
 }
 
 idOper OBJECT-TYPE
-   SYNTAX       Unsigned32
-   MAX-ACCESS   read-only
+   SYNTAX       Unsigned32(10000..99999)
+   MAX-ACCESS   read-write
    STATUS       current
-DESCRIPTION     "..."
+DESCRIPTION     "identificador inteiro da operação recebida
+pelo agente proxy (número aleatório e unívoco, gerado pelo gestor e
+verificado pelo proxy); este objeto serve de chave da tabela; tem 5
+dígitos, portanto o seu limite inferior é 100000 e o superior é 99999"
 ::= { logTableVirtualEntry 1 }
 
 typeOper OBJECT-TYPE
    SYNTAX       Unsigned32(0..1)
-   MAX-ACCESS   read-only
+   MAX-ACCESS   read-write
    STATUS       current
-DESCRIPTION     "TBD..."
+DESCRIPTION     "tipo de operação SNMP (get, getnext);a identificação
+é feita através dum número inteiro (0 para o get e 1 para o getnext)"
 ::= { logTableVirtualEntry 2 }
 
 idSource OBJECT-TYPE
-   SYNTAX       OCTET STRING (SIZE(0..30))
-   MAX-ACCESS   read-only
+   SYNTAX       OCTET STRING
+   MAX-ACCESS   read-write
    STATUS       current
-DESCRIPTION     "..."
+DESCRIPTION     "identificador string da fonte do pedido (um alias/nome
+que identifica um gestor)"
 ::= { logTableVirtualEntry 3 }
 
 idDest OBJECT-TYPE
-   SYNTAX       OCTET STRING (SIZE(0..30))
-   MAX-ACCESS   read-only
+   SYNTAX       OCTET STRING
+   MAX-ACCESS   read-write
    STATUS       current
-DESCRIPTION     "..."
+DESCRIPTION     "identificador string do destino onde a operação será
+executada (um alias/nome que identifica um gestor SNMPv2c)"
 ::= { logTableVirtualEntry 4 }
 
 oidArg OBJECT-TYPE
-   SYNTAX       OCTET STRING (SIZE(0..50))
-   MAX-ACCESS   read-only
+   SYNTAX       OCTET STRING
+   MAX-ACCESS   read-write
    STATUS       current
-DESCRIPTION     "..."
+DESCRIPTION     "OID em string do objeto da MIB que é argumento da
+operação a ser executada no agente SNMPv2c remoto"
 ::= { logTableVirtualEntry 5 }
 
 valueArg OBJECT-TYPE
-   SYNTAX       Opaque
+   SYNTAX       OCTET STRING
    MAX-ACCESS   read-only
    STATUS       current
-DESCRIPTION     "..."
+DESCRIPTION     "valor em string do objeto referido por oidArg que
+é o resultado recebido no agente proxy vindo do agente SNMPv2c remoto"
 ::= { logTableVirtualEntry 6 }
 
-typeArg OBJECT-TYPE
-   SYNTAX       OCTET STRING (SIZE(0..30))
+sizeArg OBJECT-TYPE
+   SYNTAX       Unsigned32
    MAX-ACCESS   read-only
    STATUS       current
-DESCRIPTION     "..."
+DESCRIPTION     "tamanho em bytes do valueArg; enquanto o valor de
+valueArg não é devolvido pelo agente SNMPv2c remoto, sizeArg deve
+ser igual a zero; quando o agente proxy recebe a resposta do agente
+SNMPv2c remoto grava o valor da instância do objeto em valueArg e
+coloca sizeArg com o tamanho desse valor (em bytes)"
 ::= { logTableVirtualEntry 7 }
 
-sizeArg OBJECT-TYPE
-   SYNTAX       Unsigned32(0..30)
+statusOper OBJECT-TYPE
+   SYNTAX       Unsigned32(0..3)
    MAX-ACCESS   read-only
    STATUS       current
-DESCRIPTION     "..."
+DESCRIPTION     "do tipo inteiro, assume o valor 0 quando o objeto
+não está completamente definido na tabela (falta o OID), 1 quando
+está (e está à espera da resposta), 2 quando ocorreu um erro ao
+fazer query, e 3 quando o objeto está válido"
 ::= { logTableVirtualEntry 8 }
 
-ttlOper OBJECT-TYPE
-   SYNTAX       Unsigned32(0..3600)
+requestTimestamp OBJECT-TYPE
+   SYNTAX       DateAndTime
    MAX-ACCESS   read-only
    STATUS       current
-DESCRIPTION     "..."
+DESCRIPTION     "marca o timestamp que o manager colocou o pedido na tabela"
 ::= { logTableVirtualEntry 9 }
 
-statusOper OBJECT-TYPE
-   SYNTAX       Unsigned32(0..2)
+ttlOper OBJECT-TYPE
+   SYNTAX       Unsigned32
    MAX-ACCESS   read-only
    STATUS       current
-DESCRIPTION     "0-recebido e pedido efetuado,
-1-resposta recebida, 2-erro"
+DESCRIPTION     "identifica por quanto tempo em segundos o pedido do
+agente é válido"
 ::= { logTableVirtualEntry 10 }
+
 
 END

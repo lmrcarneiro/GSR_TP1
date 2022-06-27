@@ -1,6 +1,6 @@
 from ctypes import Union
 from typing import List
-from requeststable import RequestsTable, RequestsTableColumn
+from requeststable import RequestStatus, RequestsTable, RequestsTableColumn
 from snmppacket import *
 from udpcommunication import *
 from cryptography import *
@@ -28,8 +28,7 @@ def send_request(snmp_packet: SNMPPacket, port):# to proxy
 	UDPCommunication.send_UDP(snmp_packet_bytes, port)
 
 """Envia um pedido MAX_REQUESTS_TILL_TIMEOUT vezes
-Retorna um inteiro a indicar o tipo de resposta 
-(tipo ProxyResponseType) e o valor"""
+Retorna o valor (se existir), caso contrário retorna None"""
 def send_requests_till_answer(snmp_packet_to_send:SNMPPacket):
 	req_counter = 0
 	snmp_packet_bytes = None
@@ -43,25 +42,15 @@ def send_requests_till_answer(snmp_packet_to_send:SNMPPacket):
 	if snmp_packet_bytes is not None:
 		response_snmp_packet = SNMPPacket.convert_to_packet(snmp_packet_bytes)
 		
-		# decifrar o status da resposta
-		decrypted_status_bytes = CryptoOperation.aes_decryption(
-                response_snmp_packet.response_status, SECRET_KEY)
-		if decrypted_status_bytes is None:
-			print("Chave errada...")
-			return None,None
-		status = int(decrypted_status_bytes.decode())
-
 		# decifrar value se existir
 		if response_snmp_packet.value is not None:
 			decrypted_value_bytes = CryptoOperation.aes_decryption(
 					response_snmp_packet.value, SECRET_KEY)
 			value = decrypted_value_bytes.decode()
-			return status,value
-		
-		return status,None
+			return value
 
 	print("Numero de pedidos excedido...")
-	return None,None
+	return None
 
 def create_packet_to_send(packet_type, packet_oid, value, manager, agent):
 	# ID dos pedidos vai ser aleatório entre pedidos
@@ -92,7 +81,7 @@ def send_req_recv_reply(req:str, my_manager_alias:str, received_operation_id:str
 	# Os pedidos para definir os 5 parâmetros
 	# (id operação, tipo, idSource, idDest e oidArg)
 	# vão ser do tipo SET
-	generic_set_type = PacketType.SET_REQUEST
+	generic_set_type = PacketType.SET_REQUEST.value
 
 	# ID da operação é escolhido aleatoriamente no início
 	# depois é sempre o mesmo
@@ -117,17 +106,17 @@ def send_req_recv_reply(req:str, my_manager_alias:str, received_operation_id:str
 	status = ResponseStatus.ID_ALREADY_EXISTS.value
 	while status == ResponseStatus.ID_ALREADY_EXISTS.value:
 		# Enviar pedidos continuos até obter resposta
-		status,value = send_requests_till_answer(packet_to_send)
+		status = send_requests_till_answer(packet_to_send)
 		#response = SNMPPacket.proxy_response_to_message(code_response)
 		#print("Proxy respondeu: " + response)
 		
 		#  SUCCESS INVALID_OID INVALID_TYPE ID_ALREADY_EXISTS
 		if status is None: # Nº pedidos excedido
 			return
-		if status != ResponseStatus.SUCCESS.value:
+		if status != str(ResponseStatus.SUCCESS.value):
 			print(SNMPPacket.response_status_to_message(status))
 			# Se ID já existir, temos de ler o sugerido e tentar outra vez...
-			if status == ResponseStatus.ID_ALREADY_EXISTS.value:
+			if status == str(ResponseStatus.ID_ALREADY_EXISTS.value):
 				if received_operation_id is None:
 					if DEBUG_FLAG==1:
 						print("ID inválido, a tentar outra vez!")
@@ -148,15 +137,14 @@ def send_req_recv_reply(req:str, my_manager_alias:str, received_operation_id:str
 	)
 	
 	# Enviar pedidos continuos até obter resposta
-	status,_ = send_requests_till_answer(packet_to_send)
+	status = send_requests_till_answer(packet_to_send)
 	#response = SNMPPacket.proxy_response_to_message(code_response)
 	#print("Proxy respondeu: " + response)
 	# SAME_OID_ALREADY_EXISTS DIFFERENT UNAUTHORIZED
 	if status is None: # Nº pedidos excedido
 		return
-	if status!=ResponseStatus.SUCCESS.value:
-		response = SNMPPacket.response_status_to_message(status)
-		print(response)
+	if status != str(ResponseStatus.SUCCESS.value):
+		print(SNMPPacket.response_status_to_message(status))
 		return
 	
 	# dar algum tempo ao proxy de definir o valor na tabela...
@@ -171,8 +159,8 @@ def send_req_recv_reply(req:str, my_manager_alias:str, received_operation_id:str
 		manager=my_manager_alias,
 		agent=agent_alias
 	)
-	status,value = send_requests_till_answer(packet_to_send)
-	if status is None: # Nº pedidos excedido
+	value = send_requests_till_answer(packet_to_send)
+	if value is None: # Nº pedidos excedido
 		return
 	print(value)
 	
@@ -191,9 +179,9 @@ def parse_request(req:str):
 
 	# tipo pedido
 	if split_req[0] == "GET":
-		req_type = PacketType.GET_REQUEST
+		req_type = PacketType.GET_REQUEST.value
 	elif split_req[0] == "GETNEXT":
-		req_type = PacketType.GET_NEXT_REQUEST
+		req_type = PacketType.GET_NEXT_REQUEST.value
 	else:
 		print("Tipo de pedido incorreto")
 		return error_ret
@@ -207,9 +195,9 @@ def parse_request(req:str):
 	return True, req_type, oid, agent_alias
 
 def main(my_manager_alias):
-	# sysDescr
-	sysDescr = ".1.3.6.1.2.1.1.1"
+	# sysDescr = ".1.3.6.1.2.1.1.1"
 
+	""" # SUCESSO
 	req = "GETNEXT " + sysDescr + " Agent1"
 	send_req_recv_reply(req, my_manager_alias)
 
@@ -217,11 +205,15 @@ def main(my_manager_alias):
 	req = "GET " + sysDescr + " Agent1"
 	send_req_recv_reply(req, my_manager_alias)
 
-	# ERRO
+	# DEVIA FUNCIONAR
 	req = "GETNEXT " + "sysDescr" + " Agent1"
 	send_req_recv_reply(req, my_manager_alias)
+	"""
 
-	print("TODO INPUT PROGRAMA!!!")
+	#GETNEXT .1.3.6.1.2.1.1.1 Agent1
+	while True:
+		req = input()
+		send_req_recv_reply(req, my_manager_alias)
 
 if __name__ == "__main__":
 	# operacoes config

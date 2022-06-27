@@ -35,7 +35,7 @@ class RequestsTableEntry:
     def __init__(self, idOper:int, ttlOper:int=RequestsTable.defaultTtl):
         self.idOper:int = idOper
         self.sizeArg:int = 0
-        self.statusOper = RequestStatus.INCOMPLETE
+        self.statusOper = RequestStatus.INCOMPLETE.value
         self.ttlOper = ttlOper
 
         #self.typeOper:int = typeOper
@@ -45,7 +45,6 @@ class RequestsTableEntry:
         #self.valueArg:str = valueArg
         #self.typeArg:int = typeArg
         #self.requestTimestamp:Date
-        #self.ttlOper:int = ttlOper
     
     def set_column(self, column_name:str, value):
         # O que o manager define
