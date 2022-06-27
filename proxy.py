@@ -100,6 +100,7 @@ o tipo de operação para GET no ID 145."""
 def save_request_in_table(table_id:int, table_column:str, decrypted_value:str,
                         manager_alias:str, agent_alias:str):
     
+    now = datetime.now()
     row_index = get_row_index_by_id(table_id)
 
     if row_index is None:
@@ -134,7 +135,8 @@ def save_request_in_table(table_id:int, table_column:str, decrypted_value:str,
                 # a unica possibilidade é guardar o oidArg...
                 # no futuro pode-se por isto mais modular
                 global_requests_table[row_index].oidArg = decrypted_value
-                
+                global_requests_table[row_index].requestTimestamp = now
+
                 # à partida, vai estar completely set, isto é só um safeguard
                 if global_requests_table[row_index].isCompletelySet():
                     global_requests_table[row_index].statusOper = RequestStatus.WAITING_FOR_QUERY
@@ -263,7 +265,6 @@ def handle_manager_request(request:SNMPPacket) -> bytes:
 #ObjectType(ObjectIdentity('netSnmp.11', 'secSecretKeyValue'), 2078136525)
 
 def fill_table_with_agent_response():
-    now = datetime.now()
     with global_requests_table_lock:
         for req in global_requests_table:
             if req.statusOper == RequestStatus.WAITING_FOR_QUERY:
@@ -280,7 +281,6 @@ def fill_table_with_agent_response():
                 # TODO definir tipo
                 req.valueArg = result
                 req.sizeArg = len(req.valueArg)
-                req.requestTimestamp = now
                 
                 if status != ResponseStatus.SUCCESS:
                     req.statusOper = RequestStatus.INVALID
@@ -295,15 +295,16 @@ def clean_table():
     with global_requests_table_lock:
         for req in global_requests_table:
             status = req.statusOper
-            if status == RequestStatus.INVALID or status == RequestStatus.EXPIRED:
-                if req.hasTimestampSet():
-                    # ver se ja passou o tempo
-                    stored_date = req.requestTimestamp
+            if status == RequestStatus.INVALID:
+                global_requests_table.remove(req)
+            elif req.hasTimestampSet(): # vai ter sempre timestamp, safeguard
+                # ver se ja passou o tempo
+                stored_date = req.requestTimestamp
 
-                    if (stored_date + timedelta(seconds=DELETE_NON_VALID_TABLE_ENTRY_DELAY)) < now:
-                        global_requests_table.remove(req)
-                else:
+                if (stored_date + timedelta(seconds=DELETE_NON_VALID_TABLE_ENTRY_DELAY)) < now:
                     global_requests_table.remove(req)
+            else:
+                print("Erro: " + str(req) + " nao tem timestamp...")
 
 
 def handle_requests_thread():

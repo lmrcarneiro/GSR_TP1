@@ -82,7 +82,7 @@ class SNMPPacket:
 		if int_response_type == ResponseStatus.SUCCESS.value:
 			msg = "A operacao ocorreu com sucesso!"
 		elif int_response_type == ResponseStatus.INVALID_TABLE_OID.value:
-			msg = "OID mal formatado"
+			msg = "OID da tabela da MIB mal formatado"
 		elif int_response_type == ResponseStatus.ID_ALREADY_EXISTS.value:
 			msg = "ID fornecido ja existe na tabela"
 		elif int_response_type == ResponseStatus.SAME_OID_ALREADY_EXISTS.value:

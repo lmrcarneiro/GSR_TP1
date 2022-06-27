@@ -16,7 +16,6 @@ class RequestStatus(Enum):
     WAITING_FOR_QUERY = 1
     INVALID = 2
     VALID = 3
-    EXPIRED = 4
 
 class RequestsTable:
     """Define a estrutura de dados usada na MIB-SEC para guardar pedidos"""

@@ -125,14 +125,13 @@ def send_req_recv_reply(req:str, my_manager_alias:str, received_operation_id:str
 		if status is None: # Nº pedidos excedido
 			return
 		if status != ResponseStatus.SUCCESS.value:
+			print(SNMPPacket.response_status_to_message(status))
 			# Se ID já existir, temos de ler o sugerido e tentar outra vez...
 			if status == ResponseStatus.ID_ALREADY_EXISTS.value:
 				if received_operation_id is None:
 					if DEBUG_FLAG==1:
 						print("ID inválido, a tentar outra vez!")
 					send_req_recv_reply(req, my_manager_alias, value)
-			else:
-				print(SNMPPacket.response_status_to_message(status))
 			return
 
 	# 2o pedido - definir o oid de operação (145)
@@ -155,9 +154,9 @@ def send_req_recv_reply(req:str, my_manager_alias:str, received_operation_id:str
 	# SAME_OID_ALREADY_EXISTS DIFFERENT UNAUTHORIZED
 	if status is None: # Nº pedidos excedido
 		return
-	if status!=ResponseStatus.SUCCESS.value and status!=ResponseStatus.SAME_OID_ALREADY_EXISTS.value:
-		if status == ResponseStatus.DIFFERENT_OID_ALREADY_EXISTS.value or status == ResponseStatus.UNAUTHORIZED_OPERATION.value:
-			print("Erro de concorrência ao definir valores na tabela...")
+	if status!=ResponseStatus.SUCCESS.value:
+		response = SNMPPacket.response_status_to_message(status)
+		print(response)
 		return
 	
 	# dar algum tempo ao proxy de definir o valor na tabela...
@@ -221,6 +220,8 @@ def main(my_manager_alias):
 	# ERRO
 	req = "GETNEXT " + "sysDescr" + " Agent1"
 	send_req_recv_reply(req, my_manager_alias)
+
+	print("TODO INPUT PROGRAMA!!!")
 
 if __name__ == "__main__":
 	# operacoes config
