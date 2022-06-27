@@ -93,8 +93,6 @@ class SNMPPacket:
 			msg = "Operacao nao autorizada"
 		return msg
 
-	"""Se houver algum erro a guardar n"""
-
 	@classmethod
 	def get_random_packet_id(cls):
 		return randint(cls.minId, cls.maxId)
