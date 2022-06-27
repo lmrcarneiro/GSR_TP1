@@ -35,6 +35,7 @@ class RequestsTable:
 class RequestsTableEntry:
     def __init__(self, idOper:int, ttlOper:int=RequestsTable.defaultTtl):
         self.idOper:int = idOper
+        self.sizeArg:int = 0
         self.statusOper = RequestStatus.INCOMPLETE
         self.ttlOper = ttlOper
 
@@ -44,7 +45,6 @@ class RequestsTableEntry:
         #self.oidArg:str = oidArg
         #self.valueArg:str = valueArg
         #self.typeArg:int = typeArg
-        #self.sizeArg:int = sizeArg
         #self.responseTimestamp:Date
         #self.ttlOper:int = ttlOper
     
